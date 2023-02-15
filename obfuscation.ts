@@ -8,6 +8,8 @@ import * as t from "@babel/types"
 export class Obfuscation {
 
     ast : any;
+    string_table : string[] = ['d']
+
     constructor(source : string) {
         this.ast = babel_parser.parse(source)
     }
@@ -19,52 +21,67 @@ export class Obfuscation {
         return this.ast
     }
 
+    encode_string(value : string) : string {
+        let value_string : string[] = value.split("")
+
+        let ord_string_value : number[] = value_string.map((x, i) => value.charCodeAt(i))
+
+        let length_string = ord_string_value.length-1
+
+        let encoded_string = ""
+
+        for (let val of ord_string_value) {
+            encoded_string += String.fromCharCode(((val ^ length_string))) 
+            length_string--;
+        }   
+
+        return encoded_string
+    }
+
+    decode_string(encVal : string) : string {
+        let value_string :string[] = encVal.split("")
+
+        let ord_string_value : number[] = value_string.map((x, i) => encVal.charCodeAt(i))
+
+        let length_string = ord_string_value.length-1
+
+        let dec_string = ""
+
+        for (let val_enc of ord_string_value) {
+            dec_string += String.fromCharCode((val_enc ^ length_string))
+            length_string--;
+        }
+
+        return dec_string
+    }
+
+    make_string_table(): void {
+        let string_table 
+        traverse(this.getAst(), {
+            StringLiteral(path, string_table) {
+                let {node} = path
+                console.log(node.value)
+            }
+        });
+
+    }
+
     // algorithm encryption string array
-    obfuscate_string() : void {
-            
+    obfuscate_strings() : void {
+        console.log(this.encode_string("Lol"))
+        console.log(this.decode_string("Nnl"))
     }
 
     // unoptimize arithmetic operation with axiome equation
     constant_unfolding() : void {
         
-        traverse(this.getAst(), {
-            "VariableDeclarator"(path) {
-                let {node} = path
-
-                /** 
-                if (t.isVariableDeclarator(node)) {
-                    let {init} = node
-                    
-                    
-
-                } else {
-
-                }*/
-
-                path.traverse({
-                    BinaryExpression(path) {
-                        let {node} = path
-
-                        path.traverse({
-                            NumericLiteral(path) {
-                                let {node} = path
-
-                                let randomAxiome = Math.round(Math.random() * 1337)
-                                path.parentPath.replaceWith(t.binaryExpression("^", t.valueToNode(node.value ^ randomAxiome), t.valueToNode(randomAxiome)))
-                            }
-                        })
-                    }
-                })
-
-                
-
-            }
-        })
     }
 
     obfuscate() : string {
 
         // Step constant unfolding
+        this.make_string_table()
+        this.obfuscate_strings()
         this.constant_unfolding()
 
         let obfuCode = generate(this.getAst(), { comments: false }).code;
@@ -75,7 +92,6 @@ export class Obfuscation {
 
         return obfuCode
     }
-
 
 }
 
