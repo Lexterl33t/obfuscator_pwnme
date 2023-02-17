@@ -172,6 +172,10 @@ var Obfuscation = /** @class */ (function () {
                 var random = Math.floor(Math.random() * Math.floor(Math.random() * 2000));
                 var xored_value = value_literal ^ random;
                 path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random));
+            },
+            BinaryExpression: function (path) {
+                var node = path.node;
+                console.log(node);
             }
         });
     };
@@ -191,6 +195,23 @@ var Obfuscation = /** @class */ (function () {
                         self.symbol_func_name[decl.id["name"]] = randomName;
                         decl.id["name"] = randomName;
                     }
+                    else if (t.isCallExpression(decl.init) && t.isArrowFunctionExpression(decl.init.callee)) {
+                        if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name)
+                            continue;
+                        var randomName = self.random_string(decl.id["name"].length);
+                        self.symbol_func_name[decl.id["name"]] = randomName;
+                        decl.id["name"] = randomName;
+                    }
+                }
+            },
+            CallExpression: function (path) {
+                var node = path.node;
+                for (var idx in node.arguments) {
+                    if (t.isIdentifier(node.arguments[idx])) {
+                        if (self.symbol_func_name[node.arguments[idx].name]) {
+                            path.node.arguments[idx].name = self.symbol_func_name[node.arguments[idx].name];
+                        }
+                    }
                 }
             }
         });
@@ -207,13 +228,16 @@ var Obfuscation = /** @class */ (function () {
         });
     };
     Obfuscation.prototype.hook_btoa_function = function () {
-        var source = "\n        let hook_btoa = (() => {\n            hookFunction(window, \"btoa\", hooked_btoa)\n        })()\n        \n        let hooked_btoa = ((ret, orig, args) => {\n            console.log(ret)\n        })\n        ";
+        var source = "\n        var hooked_btoa = ((original, args) => {\n              let retValue = original(args)\n              return retValue\n        })\n\n        var hook_btoa = (() => {\n            hookFunction(window, \"btoa\", hooked_btoa)\n        })()\n        ";
         var decode_str_func_ast = babel_parser.parse(source);
-        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0]);
+        for (var _i = 0, _a = decode_str_func_ast.program.body; _i < _a.length; _i++) {
+            var statement = _a[_i];
+            this.getAst().program.body.push(statement);
+        }
     };
     Obfuscation.prototype.hook_function = function () {
         this.hook_btoa_function();
-        var source = "\n        let hookFunction = ((object, functionName, callback) => {\n            (function(originalFunction) {\n                object[functionName] = function () {\n                    var returnValue = originalFunction.apply(this, arguments);\n        \n                    callback.apply(this, [returnValue, originalFunction, arguments]);\n        \n                    return returnValue;\n                };\n            }(object[functionName]));\n        })\n        ";
+        var source = "\n        var hookFunction = ((obj, fnName, callback) => {\n            const oldFn = obj[fnName];\n          \n            obj[fnName] = function(...args) {\n              const newArgs = callback(oldFn,args);\n          \n              return oldFn.apply(this, [newArgs]);\n            };\n          \n            return function(newArgs) {\n              return oldFn.apply(this, [newArgs]);\n            };\n          })\n        ";
         var decode_str_func_ast = babel_parser.parse(source);
         this.getAst().program.body.unshift(decode_str_func_ast.program.body[0]);
     };

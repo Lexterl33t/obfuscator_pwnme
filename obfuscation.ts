@@ -2,9 +2,12 @@ import * as babel_parser from "@babel/parser"
 import generate from "@babel/generator";
 import * as beautify from "js-beautify"
 import { traverse } from "@babel/core";
+import { traverseFast } from '@babel/traverse';
+import * as babel from '@babel/core';
+
+
 import * as t from "@babel/types"
 import { table } from "console";
-import { encode } from "punycode";
 import { declaredPredicate } from "@babel/types";
 import {randomBytes} from "crypto"
 import { memberExpression } from "@babel/types";
@@ -251,9 +254,18 @@ export class Obfuscation {
                 let xored_value : number = value_literal ^ random
 
                 path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random))
+            },
+            BinaryExpression(path) {
+                let {node} = path
+                console.log(node)
             }
+            
         })
+
+        
     }
+
+    
 
     rename_function() : void {
         const self = this;
@@ -271,8 +283,25 @@ export class Obfuscation {
                         let randomName : string = self.random_string(decl.id["name"].length) 
                         self.symbol_func_name[decl.id["name"]] = randomName
                         decl.id["name"] = randomName
+                    } else if (t.isCallExpression(decl.init) && t.isArrowFunctionExpression(decl.init.callee)) {
+                        if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name) continue;
+
+                        let randomName : string = self.random_string(decl.id["name"].length) 
+                        self.symbol_func_name[decl.id["name"]] = randomName
+                        decl.id["name"] = randomName
                     }
                     
+                }
+            },
+            CallExpression(path) {
+                let {node} = path
+
+                for (let idx in node.arguments) {
+                    if (t.isIdentifier(node.arguments[idx])) {
+                        if (self.symbol_func_name[node.arguments[idx].name]) {
+                            path.node.arguments[idx].name = self.symbol_func_name[node.arguments[idx].name]
+                        }
+                    }
                 }
             }
         })
@@ -294,18 +323,21 @@ export class Obfuscation {
 
     hook_btoa_function() : void {
         let source : string = `
-        let hook_btoa = (() => {
+        var hooked_btoa = ((original, args) => {
+              let retValue = original(args)
+              return retValue
+        })
+
+        var hook_btoa = (() => {
             hookFunction(window, "btoa", hooked_btoa)
         })()
-        
-        let hooked_btoa = ((ret, orig, args) => {
-            console.log(ret)
-        })
         `
 
         let decode_str_func_ast = babel_parser.parse(source)
 
-        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0])
+        for (let statement of decode_str_func_ast.program.body) {
+            this.getAst().program.body.push(statement)
+        }
     }
 
     hook_function() : void {
@@ -313,17 +345,19 @@ export class Obfuscation {
         this.hook_btoa_function()
 
         let source : string = `
-        let hookFunction = ((object, functionName, callback) => {
-            (function(originalFunction) {
-                object[functionName] = function () {
-                    var returnValue = originalFunction.apply(this, arguments);
-        
-                    callback.apply(this, [returnValue, originalFunction, arguments]);
-        
-                    return returnValue;
-                };
-            }(object[functionName]));
-        })
+        var hookFunction = ((obj, fnName, callback) => {
+            const oldFn = obj[fnName];
+          
+            obj[fnName] = function(...args) {
+              const newArgs = callback(oldFn,args);
+          
+              return oldFn.apply(this, [newArgs]);
+            };
+          
+            return function(newArgs) {
+              return oldFn.apply(this, [newArgs]);
+            };
+          })
         `
 
         let decode_str_func_ast = babel_parser.parse(source)

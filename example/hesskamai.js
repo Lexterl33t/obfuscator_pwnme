@@ -115,10 +115,15 @@ let init_hk = (() => {
     
     let validTok = gen_valid_token(userA, time, axiome, key)
 
-
+    console.log(validTok.length)
     fetch_request(validTok, userA)
         .then((data) => {
             document.getElementById("msg").innerHTML = data.message
         })
     
+})
+
+
+let okk = (() => {
+    return 1 + 6 * 8
 })
