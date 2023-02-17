@@ -26,7 +26,7 @@ var Obfuscation = /** @class */ (function () {
         var nonConstants = [];
         for (var _i = 0, array_1 = array; _i < array_1.length; _i++) {
             var item = array_1[_i];
-            if (item.kind === 'const') {
+            if (item.kind === 'const' || item.kind === 'var') {
                 constants.push(item);
             }
             else {
@@ -161,6 +161,19 @@ var Obfuscation = /** @class */ (function () {
     };
     // unoptimize arithmetic operation with axiome equation
     Obfuscation.prototype.constant_unfolding = function () {
+        var self = this;
+        (0, core_1.traverse)(this.getAst(), {
+            MemberExpression: function (path) {
+                var node = path.node;
+                var property = node.property;
+                if (!t.isNumericLiteral(property))
+                    return;
+                var value_literal = property.value;
+                var random = Math.floor(Math.random() * Math.floor(Math.random() * 2000));
+                var xored_value = value_literal ^ random;
+                path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random));
+            }
+        });
     };
     Obfuscation.prototype.rename_function = function () {
         var self = this;
@@ -171,13 +184,13 @@ var Obfuscation = /** @class */ (function () {
                     var decl = _a[_i];
                     if (!t.isVariableDeclarator(decl))
                         continue;
-                    if (!t.isArrowFunctionExpression(decl.init))
-                        continue;
-                    if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name)
-                        continue;
-                    var randomName = self.random_string(decl.id["name"].length);
-                    self.symbol_func_name[decl.id["name"]] = randomName;
-                    decl.id["name"] = randomName;
+                    if (t.isArrowFunctionExpression(decl.init)) {
+                        if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name)
+                            continue;
+                        var randomName = self.random_string(decl.id["name"].length);
+                        self.symbol_func_name[decl.id["name"]] = randomName;
+                        decl.id["name"] = randomName;
+                    }
                 }
             }
         });
@@ -193,16 +206,28 @@ var Obfuscation = /** @class */ (function () {
             }
         });
     };
+    Obfuscation.prototype.hook_btoa_function = function () {
+        var source = "\n        let hook_btoa = (() => {\n            hookFunction(window, \"btoa\", hooked_btoa)\n        })()\n        \n        let hooked_btoa = ((ret, orig, args) => {\n            console.log(ret)\n        })\n        ";
+        var decode_str_func_ast = babel_parser.parse(source);
+        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0]);
+    };
+    Obfuscation.prototype.hook_function = function () {
+        this.hook_btoa_function();
+        var source = "\n        let hookFunction = ((object, functionName, callback) => {\n            (function(originalFunction) {\n                object[functionName] = function () {\n                    var returnValue = originalFunction.apply(this, arguments);\n        \n                    callback.apply(this, [returnValue, originalFunction, arguments]);\n        \n                    return returnValue;\n                };\n            }(object[functionName]));\n        })\n        ";
+        var decode_str_func_ast = babel_parser.parse(source);
+        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0]);
+    };
     Obfuscation.prototype.obfuscate = function () {
         // Step constant unfolding
         this.get_decode_func_pattern_ast();
+        this.hook_function();
         this.make_string_table();
-        this.constant_unfolding();
         this.rename_function();
+        this.constant_unfolding();
         this.getAst().program.body.unshift(t.variableDeclaration("var", [
             t.variableDeclarator(t.identifier(this.table_enc_name), t.arrayExpression(this.table_string_to_string_literal(this.enc_string_table)))
         ]), this.get_decode_func_pattern_ast());
-        this.shuffle(this.getAst().program.body);
+        this.getAst().program.body = this.shuffle(this.getAst().program.body);
         var obfuCode = (0, generator_1["default"])(this.getAst(), { comments: false }).code;
         obfuCode = beautify(obfuCode, {
             indent_size: 2,

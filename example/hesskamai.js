@@ -15,6 +15,7 @@ const TYPES = {
 const url = "http://localhost:1337";
 const endpoint = "/welcome"
 
+
 let get_key = (() => {
     return ("0x5df1347da0cdd31a2d1c77d8ce5e4bdd65ee8effd949b841ad9a882597c97fbe")
 })

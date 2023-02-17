@@ -7,6 +7,7 @@ import { table } from "console";
 import { encode } from "punycode";
 import { declaredPredicate } from "@babel/types";
 import {randomBytes} from "crypto"
+import { memberExpression } from "@babel/types";
 
 export class Obfuscation {
 
@@ -32,7 +33,7 @@ export class Obfuscation {
         let constants = [];
         let nonConstants = [];
         for (let item of array) {
-          if (item.kind === 'const') {
+          if (item.kind === 'const' || item.kind === 'var') {
             constants.push(item);
           } else {
             nonConstants.push(item);
@@ -234,6 +235,24 @@ export class Obfuscation {
     // unoptimize arithmetic operation with axiome equation
     constant_unfolding() : void {
         
+        const self = this
+
+        traverse(this.getAst(), {
+            MemberExpression(path) {
+                let {node} = path
+
+                let {property} = node
+
+                if (!t.isNumericLiteral(property)) return;
+
+                let value_literal : number = property.value
+
+                let random : number = Math.floor(Math.random() * Math.floor(Math.random() * 2000))
+                let xored_value : number = value_literal ^ random
+
+                path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random))
+            }
+        })
     }
 
     rename_function() : void {
@@ -246,13 +265,14 @@ export class Obfuscation {
                 for (let decl of node.declarations) {
                     if (!t.isVariableDeclarator(decl)) continue;
 
-                    if (!t.isArrowFunctionExpression(decl.init)) continue;
+                    if (t.isArrowFunctionExpression(decl.init)) {
+                        if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name) continue;
 
-                    if (decl.id["name"] === "init_hk" || decl.id["name"] === self.decode_func_name) continue;
-
-                    let randomName : string = self.random_string(decl.id["name"].length) 
-                    self.symbol_func_name[decl.id["name"]] = randomName
-                    decl.id["name"] = randomName
+                        let randomName : string = self.random_string(decl.id["name"].length) 
+                        self.symbol_func_name[decl.id["name"]] = randomName
+                        decl.id["name"] = randomName
+                    }
+                    
                 }
             }
         })
@@ -272,14 +292,56 @@ export class Obfuscation {
         })
     }
 
+    hook_btoa_function() : void {
+        let source : string = `
+        let hook_btoa = (() => {
+            hookFunction(window, "btoa", hooked_btoa)
+        })()
+        
+        let hooked_btoa = ((ret, orig, args) => {
+            console.log(ret)
+        })
+        `
+
+        let decode_str_func_ast = babel_parser.parse(source)
+
+        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0])
+    }
+
+    hook_function() : void {
+
+        this.hook_btoa_function()
+
+        let source : string = `
+        let hookFunction = ((object, functionName, callback) => {
+            (function(originalFunction) {
+                object[functionName] = function () {
+                    var returnValue = originalFunction.apply(this, arguments);
+        
+                    callback.apply(this, [returnValue, originalFunction, arguments]);
+        
+                    return returnValue;
+                };
+            }(object[functionName]));
+        })
+        `
+
+        let decode_str_func_ast = babel_parser.parse(source)
+
+        this.getAst().program.body.unshift(decode_str_func_ast.program.body[0])
+
+
+        
+    } 
+
     obfuscate() : string {
 
         // Step constant unfolding
         this.get_decode_func_pattern_ast()
+        this.hook_function()
         this.make_string_table()
-        this.constant_unfolding()
         this.rename_function()
-
+        this.constant_unfolding()
 
         this.getAst().program.body.unshift(
             t.variableDeclaration(
@@ -293,7 +355,7 @@ export class Obfuscation {
             this.get_decode_func_pattern_ast()
         )
 
-        this.shuffle(this.getAst().program.body)
+        this.getAst().program.body = this.shuffle(this.getAst().program.body)
         let obfuCode = generate(this.getAst(), { comments: false }).code;
         obfuCode = beautify(obfuCode, {
             indent_size: 2,
