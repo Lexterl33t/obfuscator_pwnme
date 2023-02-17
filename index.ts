@@ -37,7 +37,7 @@ class App {
         if (options.obfuscate) {
             let obfu : obfuscation.Obfuscation = new obfuscation.Obfuscation(this.load_file(options.obfuscate))
 
-            console.log(obfu.obfuscate())
+            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), obfu.obfuscate()); 
         }
     }
 }

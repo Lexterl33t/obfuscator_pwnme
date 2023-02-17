@@ -8,7 +8,7 @@ const alpha = Array.from(Array(26)).map((e, i) => i + 65);
 const ALPHABET = alpha.map((x) => String.fromCharCode(x));
 
 const TYPES = {
-    "get_flag_bit": 1,
+    "get_flag_bit": "kaka",
     "normal_bit": 0 
 }
 
@@ -71,7 +71,7 @@ let gen_valid_token = ((uAgent, timestamp, key, axiome) => {
             token+= "."
         }
     }
-    
+
     token = btoa(token)
     token += "."
     token += btoa(timestamp)
@@ -100,6 +100,7 @@ let fetch_request = ( async (token, uagent) => {
     )
     return data
 })
+
 
 let init_hk = (() => {
     let userA = get_uagent()
