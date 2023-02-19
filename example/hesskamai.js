@@ -8,7 +8,7 @@ const alpha = Array.from(Array(26)).map((e, i) => i + 65);
 const ALPHABET = alpha.map((x) => String.fromCharCode(x));
 
 const TYPES = {
-    "get_flag_bit": "kaka",
+    "flag_bit": 1,
     "normal_bit": 0 
 }
 
@@ -121,9 +121,4 @@ let init_hk = (() => {
             document.getElementById("msg").innerHTML = data.message
         })
     
-})
-
-
-let okk = (() => {
-    return 1 + 6 * 8
 })

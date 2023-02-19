@@ -12,9 +12,25 @@ var Obfuscation = /** @class */ (function () {
         this.string_table = [];
         this.enc_string_table = [];
         this.symbol_func_name = {};
+        this.symbol_object = [];
+        this.whitelist_native_object = [
+            "Math",
+            "String",
+            "window",
+            "document",
+            "floor",
+            "fromCharCode",
+            "random",
+            "Date",
+            "now",
+            "getElementById",
+            "axios",
+            "post",
+        ];
         this.ast = babel_parser.parse(source);
         this.decode_func_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split("=").join("");
         this.table_enc_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split('=').join("");
+        this.table_object_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split('=').join("");
         console.log(this.table_enc_name, this.decode_func_name);
     }
     Obfuscation.prototype.random_string = function (size) {
@@ -89,10 +105,26 @@ var Obfuscation = /** @class */ (function () {
             StringLiteral: function (path) {
                 var node = path.node;
                 self.string_table.push(node.value);
+            },
+            MemberExpression: function (path) {
+                var node = path.node;
+                if (node.computed)
+                    return;
+                if (!t.isIdentifier(node.object) || !t.isIdentifier(node.property))
+                    return;
+                if (!self.symbol_object.includes(node.object.name) && self.whitelist_native_object.includes(node.object.name)) {
+                    self.symbol_object.push(node.object.name);
+                }
+                if (!self.string_table.includes(node.property.name) && self.whitelist_native_object.includes(node.property.name)) {
+                    self.string_table.push(node.property.name);
+                }
             }
         });
         this.obfuscate_strings();
-        console.log(this.decode_string(this.enc_string_table[16]));
+        console.log(self.symbol_object, self.string_table);
+    };
+    Obfuscation.prototype.do_object_to_array = function () {
+        var self = this;
         (0, core_1.traverse)(this.getAst(), {
             AssignmentExpression: function (path) {
                 var node = path.node;
@@ -145,6 +177,18 @@ var Obfuscation = /** @class */ (function () {
                 }
             }
         });
+        (0, core_1.traverse)(this.getAst(), {
+            CallExpression: function (path) {
+                var node = path.node;
+                var callee = node.callee;
+                if (!t.isMemberExpression(callee))
+                    if (!t.isIdentifier(callee.object) || !t.isIdentifier(callee.property))
+                        return;
+                if (self.symbol_object.includes(callee.object.name) && self.string_table.includes(callee.property.name)) {
+                    path.node.callee = t.memberExpression(t.memberExpression(t.identifier(self.table_object_name), t.numericLiteral(self.symbol_object.indexOf(callee.object.name)), true), self.get_callexpression(self.decode_func_name, self.get_array_element_by_value(self.string_table, callee.property.name)), true);
+                }
+            }
+        });
     };
     // algorithm encryption string array
     Obfuscation.prototype.obfuscate_strings = function () {
@@ -157,6 +201,10 @@ var Obfuscation = /** @class */ (function () {
     };
     Obfuscation.prototype.table_string_to_string_literal = function (table_str) {
         var tt = table_str.map(function (str) { return t.stringLiteral(str); });
+        return tt;
+    };
+    Obfuscation.prototype.table_string_to_identifier = function (table_str) {
+        var tt = table_str.map(function (str) { return t.identifier(str); });
         return tt;
     };
     // unoptimize arithmetic operation with axiome equation
@@ -173,9 +221,36 @@ var Obfuscation = /** @class */ (function () {
                 var xored_value = value_literal ^ random;
                 path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random));
             },
-            BinaryExpression: function (path) {
+            ReturnStatement: function (path) {
+                var node = path.node;
+                if (!t.isNumericLiteral(node.argument))
+                    return;
+                var value = node.argument.value;
+                var rand = Math.floor(Math.random() * 2000);
+                var xored = rand ^ value;
+                /*
+                    rand = 74
+                    value = 0x1337337
+                    xored = rand ^ value
+
+                    bitshifted = xored >> (rand ^ rand) + -1 + 1
+
+                */
+                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)));
+            },
+            ObjectExpression: function (path) {
                 var node = path.node;
                 console.log(node);
+                for (var decl in node.properties) {
+                    if (!t.isObjectProperty(node.properties[decl]))
+                        continue;
+                    if (!t.isNumericLiteral(node.properties[decl].value))
+                        continue;
+                    var value = node.properties[decl].value.value;
+                    var rand = Math.floor(Math.random() * 2000);
+                    var xored = rand ^ value;
+                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)));
+                }
             }
         });
     };
@@ -228,7 +303,7 @@ var Obfuscation = /** @class */ (function () {
         });
     };
     Obfuscation.prototype.hook_btoa_function = function () {
-        var source = "\n        var hooked_btoa = ((original, args) => {\n              let retValue = original(args)\n              return retValue\n        })\n\n        var hook_btoa = (() => {\n            hookFunction(window, \"btoa\", hooked_btoa)\n        })()\n        ";
+        var source = "\n        var hooked_btoa = ((original, args) => {\n              let retValue = original(args)\n              return [retValue]\n        })\n\n        var hook_btoa = (() => {\n            hookFunction(window, \"btoa\", hooked_btoa)\n        })()\n        ";
         var decode_str_func_ast = babel_parser.parse(source);
         for (var _i = 0, _a = decode_str_func_ast.program.body; _i < _a.length; _i++) {
             var statement = _a[_i];
@@ -237,20 +312,31 @@ var Obfuscation = /** @class */ (function () {
     };
     Obfuscation.prototype.hook_function = function () {
         this.hook_btoa_function();
-        var source = "\n        var hookFunction = ((obj, fnName, callback) => {\n            const oldFn = obj[fnName];\n          \n            obj[fnName] = function(...args) {\n              const newArgs = callback(oldFn,args);\n          \n              return oldFn.apply(this, [newArgs]);\n            };\n          \n            return function(newArgs) {\n              return oldFn.apply(this, [newArgs]);\n            };\n          })\n        ";
+        var source = "\n        var hookFunction = (obj, fnName, callback) => {\n            const originalFn = obj[fnName];\n            obj[fnName] = function(...args) {\n              const newArgs = callback(originalFn, args);\n              return originalFn.apply(this, newArgs);\n            };\n          };\n        ";
         var decode_str_func_ast = babel_parser.parse(source);
         this.getAst().program.body.unshift(decode_str_func_ast.program.body[0]);
     };
+    Obfuscation.prototype.gen_junk_code = function () {
+        var var1 = this.random_string(4);
+        var var2 = this.random_string(5);
+        var junkcode = "\n            let ".concat(this.random_string(45), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " ^ ").concat(var2, "\n            })\n\n            let ").concat(this.random_string(1), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " * ").concat(var2, "\n            })\n\n\n            let ").concat(this.random_string(45), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " - ").concat(var2, "\n            })\n\n            let ").concat(this.random_string(1), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " + ").concat(var2, "\n            })\n\n\n            let ").concat(this.random_string(45), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " / ").concat(var2, "\n            })\n\n            let ").concat(this.random_string(1), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " % ").concat(var2, "\n            })\n\n\n            let ").concat(this.random_string(45), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " ^ ").concat(var2, " + ").concat(var1, "\n            })\n\n            let ").concat(this.random_string(1), " = ((").concat(var1, ", ").concat(var2, ") => {\n                return ").concat(var1, " * ").concat(var2, " - ").concat(var2, "\n            })\n        ");
+        var decode_str_func_ast = babel_parser.parse(junkcode);
+        this.getAst().program.body.push(decode_str_func_ast);
+    };
     Obfuscation.prototype.obfuscate = function () {
         // Step constant unfolding
-        this.get_decode_func_pattern_ast();
+        this.gen_junk_code();
         this.hook_function();
         this.make_string_table();
+        this.do_object_to_array();
         this.rename_function();
         this.constant_unfolding();
         this.getAst().program.body.unshift(t.variableDeclaration("var", [
             t.variableDeclarator(t.identifier(this.table_enc_name), t.arrayExpression(this.table_string_to_string_literal(this.enc_string_table)))
         ]), this.get_decode_func_pattern_ast());
+        this.getAst().program.body.unshift(t.variableDeclaration("var", [
+            t.variableDeclarator(t.identifier(this.table_object_name), t.arrayExpression(this.table_string_to_identifier(this.symbol_object)))
+        ]));
         this.getAst().program.body = this.shuffle(this.getAst().program.body);
         var obfuCode = (0, generator_1["default"])(this.getAst(), { comments: false }).code;
         obfuCode = beautify(obfuCode, {

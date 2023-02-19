@@ -4,6 +4,7 @@ var obfuscation = require("./obfuscation");
 var commander = require("commander");
 var process = require("process");
 var fs = require("fs");
+var uglify = require("uglify-js");
 var App = /** @class */ (function () {
     function App() {
         this.main();
@@ -31,7 +32,8 @@ var App = /** @class */ (function () {
         var options = program.opts();
         if (options.obfuscate) {
             var obfu = new obfuscation.Obfuscation(this.load_file(options.obfuscate));
-            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), obfu.obfuscate());
+            var minified_code = uglify.minify(obfu.obfuscate());
+            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), minified_code.code);
         }
     };
     return App;

@@ -20,11 +20,28 @@ export class Obfuscation {
     decode_func_name : string
     table_enc_name : string
     symbol_func_name : Object = {}
+    symbol_object : string[] = []
+    table_object_name : string
+    whitelist_native_object : string[] = [
+        "Math",
+        "String",
+        "window",
+        "document",
+        "floor",
+        "fromCharCode",
+        "random",
+        "Date",
+        "now",
+        "getElementById",
+        "axios",
+        "post",
+    ]
 
     constructor(source : string) {
         this.ast = babel_parser.parse(source)
         this.decode_func_name = btoa(randomBytes(20).toString('hex')).split("=").join("")
         this.table_enc_name = btoa(randomBytes(20).toString('hex')).split('=').join("")
+        this.table_object_name = btoa(randomBytes(20).toString('hex')).split('=').join("")
         console.log(this.table_enc_name, this.decode_func_name)
     }
 
@@ -137,12 +154,36 @@ export class Obfuscation {
                 let {node} = path
 
                 self.string_table.push(node.value)
+            },
+            MemberExpression(path) {
+                let {node} = path
+
+                if (node.computed) return;
+
+                if (!t.isIdentifier(node.object) || !t.isIdentifier(node.property)) return;
+                
+                if (!self.symbol_object.includes(node.object.name) && self.whitelist_native_object.includes(node.object.name)) {
+                    self.symbol_object.push(node.object.name)
+                }
+
+                if (!self.string_table.includes(node.property.name) && self.whitelist_native_object.includes(node.property.name)) {
+                    self.string_table.push(node.property.name)
+                }
             }
         })
 
         this.obfuscate_strings()
 
-        console.log(this.decode_string(this.enc_string_table[16]))
+        
+
+
+        console.log(self.symbol_object, self.string_table)
+
+    }
+
+    do_object_to_array() : void {
+
+        const self = this;
 
         traverse(this.getAst(), {
             AssignmentExpression(path) {
@@ -216,9 +257,29 @@ export class Obfuscation {
                         )
                     }
                 }
-            }
+            },
+            
         });
 
+
+        traverse(this.getAst(), {
+            CallExpression(path) {
+                let {node} = path
+
+                let {callee} = node
+                if (!t.isMemberExpression(callee))
+
+                if (!t.isIdentifier(callee.object) || !t.isIdentifier(callee.property)) return;
+
+                if (self.symbol_object.includes(callee.object.name) && self.string_table.includes(callee.property.name)) {
+                    path.node.callee = t.memberExpression(
+                        t.memberExpression(t.identifier(self.table_object_name), t.numericLiteral(self.symbol_object.indexOf(callee.object.name)), true),
+                        self.get_callexpression(self.decode_func_name, self.get_array_element_by_value(self.string_table, callee.property.name)),
+                        true,
+                    )
+                }
+            }
+        })
     }
 
     // algorithm encryption string array
@@ -232,6 +293,11 @@ export class Obfuscation {
 
     table_string_to_string_literal(table_str : string[]) : t.StringLiteral[] {
         let tt : t.StringLiteral[] = table_str.map((str) => t.stringLiteral(str))
+        return tt;
+    }
+
+    table_string_to_identifier(table_str : string[]) : t.Identifier[] {
+        let tt : t.Identifier[] = table_str.map((str) => t.identifier(str))
         return tt;
     }
 
@@ -255,9 +321,45 @@ export class Obfuscation {
 
                 path.node.property = t.binaryExpression("^", t.numericLiteral(xored_value), t.numericLiteral(random))
             },
-            BinaryExpression(path) {
+            ReturnStatement(path) {
                 let {node} = path
+                
+                if (!t.isNumericLiteral(node.argument)) return;
+
+                let value : number = node.argument.value
+
+                let rand : number = Math.floor(Math.random() * 2000)
+                let xored : number = rand ^ value
+                /*
+                    rand = 74
+                    value = 0x1337337
+                    xored = rand ^ value
+
+                    bitshifted = xored >> (rand ^ rand) + -1 + 1
+
+                */
+                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)))
+            },
+            ObjectExpression(path) {
+                let {node} = path
+
                 console.log(node)
+
+                for (let decl in node.properties) {
+                    if (!t.isObjectProperty(node.properties[decl])) continue;
+
+                    if (!t.isNumericLiteral(node.properties[decl].value)) continue;
+
+                    
+                    let value : number = node.properties[decl].value.value
+
+                    let rand : number = Math.floor(Math.random() * 2000)
+                    let xored : number = rand ^ value
+
+                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1))) 
+                }
+
+                
             }
             
         })
@@ -325,7 +427,7 @@ export class Obfuscation {
         let source : string = `
         var hooked_btoa = ((original, args) => {
               let retValue = original(args)
-              return retValue
+              return [retValue]
         })
 
         var hook_btoa = (() => {
@@ -345,37 +447,77 @@ export class Obfuscation {
         this.hook_btoa_function()
 
         let source : string = `
-        var hookFunction = ((obj, fnName, callback) => {
-            const oldFn = obj[fnName];
-          
+        var hookFunction = (obj, fnName, callback) => {
+            const originalFn = obj[fnName];
             obj[fnName] = function(...args) {
-              const newArgs = callback(oldFn,args);
-          
-              return oldFn.apply(this, [newArgs]);
+              const newArgs = callback(originalFn, args);
+              return originalFn.apply(this, newArgs);
             };
-          
-            return function(newArgs) {
-              return oldFn.apply(this, [newArgs]);
-            };
-          })
+          };
         `
 
         let decode_str_func_ast = babel_parser.parse(source)
 
         this.getAst().program.body.unshift(decode_str_func_ast.program.body[0])
-
-
-        
     } 
+
+    gen_junk_code() : void {
+        let var1 : string = this.random_string(4)
+        let var2 : string = this.random_string(5)
+
+        let junkcode = `
+            let ${this.random_string(45)} = ((${var1}, ${var2}) => {
+                return ${var1} ^ ${var2}
+            })
+
+            let ${this.random_string(1)} = ((${var1}, ${var2}) => {
+                return ${var1} * ${var2}
+            })
+
+
+            let ${this.random_string(45)} = ((${var1}, ${var2}) => {
+                return ${var1} - ${var2}
+            })
+
+            let ${this.random_string(1)} = ((${var1}, ${var2}) => {
+                return ${var1} + ${var2}
+            })
+
+
+            let ${this.random_string(45)} = ((${var1}, ${var2}) => {
+                return ${var1} / ${var2}
+            })
+
+            let ${this.random_string(1)} = ((${var1}, ${var2}) => {
+                return ${var1} % ${var2}
+            })
+
+
+            let ${this.random_string(45)} = ((${var1}, ${var2}) => {
+                return ${var1} ^ ${var2} + ${var1}
+            })
+
+            let ${this.random_string(1)} = ((${var1}, ${var2}) => {
+                return ${var1} * ${var2} - ${var2}
+            })
+        `
+
+        let decode_str_func_ast = babel_parser.parse(junkcode)
+
+        this.getAst().program.body.push(decode_str_func_ast)
+    }
 
     obfuscate() : string {
 
         // Step constant unfolding
-        this.get_decode_func_pattern_ast()
+        
+        this.gen_junk_code()
         this.hook_function()
         this.make_string_table()
+        this.do_object_to_array()
         this.rename_function()
         this.constant_unfolding()
+
 
         this.getAst().program.body.unshift(
             t.variableDeclaration(
@@ -388,6 +530,20 @@ export class Obfuscation {
             ),
             this.get_decode_func_pattern_ast()
         )
+
+        this.getAst().program.body.unshift(
+            t.variableDeclaration(
+                "var",
+                [
+                t.variableDeclarator(
+                    t.identifier(this.table_object_name),
+                    t.arrayExpression(this.table_string_to_identifier(this.symbol_object))
+                )],
+            )
+            )
+
+
+        
 
         this.getAst().program.body = this.shuffle(this.getAst().program.body)
         let obfuCode = generate(this.getAst(), { comments: false }).code;

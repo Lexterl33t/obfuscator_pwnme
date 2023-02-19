@@ -2,6 +2,7 @@ import * as obfuscation from "./obfuscation"
 import * as commander from 'commander'
 import * as process from 'process'
 import * as fs from 'fs';
+import * as uglify from 'uglify-js';
 
 
 class App {
@@ -37,7 +38,8 @@ class App {
         if (options.obfuscate) {
             let obfu : obfuscation.Obfuscation = new obfuscation.Obfuscation(this.load_file(options.obfuscate))
 
-            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), obfu.obfuscate()); 
+            let minified_code = uglify.minify(obfu.obfuscate());
+            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), minified_code.code); 
         }
     }
 }
