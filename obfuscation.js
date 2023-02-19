@@ -31,7 +31,8 @@ var Obfuscation = /** @class */ (function () {
         this.decode_func_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split("=").join("");
         this.table_enc_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split('=').join("");
         this.table_object_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split('=').join("");
-        console.log(this.table_enc_name, this.decode_func_name);
+        var fixe_name = btoa((0, crypto_1.randomBytes)(20).toString('hex')).split('=').join("");
+        this.fixe_variable_literal = { 1: fixe_name };
     }
     Obfuscation.prototype.random_string = function (size) {
         return btoa((0, crypto_1.randomBytes)(size).toString('hex')).split('=').join("");
@@ -236,7 +237,7 @@ var Obfuscation = /** @class */ (function () {
                     bitshifted = xored >> (rand ^ rand) + -1 + 1
 
                 */
-                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)));
+                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.binaryExpression("*", t.identifier(self.fixe_variable_literal[1]), t.numericLiteral(-1)), t.identifier(self.fixe_variable_literal[1])));
             },
             ObjectExpression: function (path) {
                 var node = path.node;
@@ -249,7 +250,7 @@ var Obfuscation = /** @class */ (function () {
                     var value = node.properties[decl].value.value;
                     var rand = Math.floor(Math.random() * 2000);
                     var xored = rand ^ value;
-                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)));
+                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.binaryExpression("*", t.identifier(self.fixe_variable_literal[1]), t.numericLiteral(-1)), t.identifier(self.fixe_variable_literal[1])));
                 }
             }
         });
@@ -333,7 +334,9 @@ var Obfuscation = /** @class */ (function () {
         this.constant_unfolding();
         this.getAst().program.body.unshift(t.variableDeclaration("var", [
             t.variableDeclarator(t.identifier(this.table_enc_name), t.arrayExpression(this.table_string_to_string_literal(this.enc_string_table)))
-        ]), this.get_decode_func_pattern_ast());
+        ]), this.get_decode_func_pattern_ast(), t.variableDeclaration("var", [
+            t.variableDeclarator(t.identifier(this.fixe_variable_literal[1]), t.numericLiteral(parseInt(Object.keys(this.fixe_variable_literal)[0])))
+        ]));
         this.getAst().program.body.unshift(t.variableDeclaration("var", [
             t.variableDeclarator(t.identifier(this.table_object_name), t.arrayExpression(this.table_string_to_identifier(this.symbol_object)))
         ]));

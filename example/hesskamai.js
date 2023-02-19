@@ -95,7 +95,7 @@ let fetch_request = ( async (token, uagent) => {
         }, {
             headers: {
             'Content-Type': 'application/json',
-            'User-Agent': uagent,
+            'HessAk': uagent,
             }
         }
     )

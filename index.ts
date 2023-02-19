@@ -38,8 +38,7 @@ class App {
         if (options.obfuscate) {
             let obfu : obfuscation.Obfuscation = new obfuscation.Obfuscation(this.load_file(options.obfuscate))
 
-            let minified_code = uglify.minify(obfu.obfuscate());
-            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), minified_code.code); 
+            fs.writeFileSync('./output/obfuscated_'.concat(options.obfuscate.split('/').reverse()[0]), obfu.obfuscate()); 
         }
     }
 }

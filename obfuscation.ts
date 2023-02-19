@@ -2,15 +2,10 @@ import * as babel_parser from "@babel/parser"
 import generate from "@babel/generator";
 import * as beautify from "js-beautify"
 import { traverse } from "@babel/core";
-import { traverseFast } from '@babel/traverse';
-import * as babel from '@babel/core';
 
 
 import * as t from "@babel/types"
-import { table } from "console";
-import { declaredPredicate } from "@babel/types";
 import {randomBytes} from "crypto"
-import { memberExpression } from "@babel/types";
 
 export class Obfuscation {
 
@@ -22,6 +17,7 @@ export class Obfuscation {
     symbol_func_name : Object = {}
     symbol_object : string[] = []
     table_object_name : string
+    fixe_variable_literal : Object
     whitelist_native_object : string[] = [
         "Math",
         "String",
@@ -42,7 +38,8 @@ export class Obfuscation {
         this.decode_func_name = btoa(randomBytes(20).toString('hex')).split("=").join("")
         this.table_enc_name = btoa(randomBytes(20).toString('hex')).split('=').join("")
         this.table_object_name = btoa(randomBytes(20).toString('hex')).split('=').join("")
-        console.log(this.table_enc_name, this.decode_func_name)
+        let fixe_name : string = btoa(randomBytes(20).toString('hex')).split('=').join("")
+        this.fixe_variable_literal = {1: fixe_name}
     }
 
     random_string(size : number) : string {
@@ -338,7 +335,7 @@ export class Obfuscation {
                     bitshifted = xored >> (rand ^ rand) + -1 + 1
 
                 */
-                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1)))
+                path.node.argument = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.binaryExpression("*", t.identifier(self.fixe_variable_literal[1]), t.numericLiteral(-1)), t.identifier(self.fixe_variable_literal[1])))
             },
             ObjectExpression(path) {
                 let {node} = path
@@ -356,7 +353,7 @@ export class Obfuscation {
                     let rand : number = Math.floor(Math.random() * 2000)
                     let xored : number = rand ^ value
 
-                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.numericLiteral(-1), t.numericLiteral(1))) 
+                    path.node.properties[decl].value = t.binaryExpression("+", t.binaryExpression(">>", t.binaryExpression("^", t.numericLiteral(xored), t.numericLiteral(rand)), t.binaryExpression("^", t.numericLiteral(rand), t.numericLiteral(rand))), t.binaryExpression("+", t.binaryExpression("*", t.identifier(self.fixe_variable_literal[1]), t.numericLiteral(-1)), t.identifier(self.fixe_variable_literal[1]))) 
                 }
 
                 
@@ -528,8 +525,18 @@ export class Obfuscation {
                     t.arrayExpression(this.table_string_to_string_literal(this.enc_string_table))
                 )],
             ),
-            this.get_decode_func_pattern_ast()
+            this.get_decode_func_pattern_ast(),
+            t.variableDeclaration(
+                "var",
+                [
+                t.variableDeclarator(
+                    t.identifier(this.fixe_variable_literal[1]),
+                    t.numericLiteral(parseInt(Object.keys(this.fixe_variable_literal)[0])),
+                )],
+            ),
         )
+
+    
 
         this.getAst().program.body.unshift(
             t.variableDeclaration(
